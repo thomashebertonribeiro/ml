@@ -1,0 +1,126 @@
+version: "3.9"
+
+# =============================================================================
+# Production overrides — apply on top of docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Changes from base:
+#   - All services: restart=unless-stopped
+#   - backend: production stage, 4 Uvicorn workers, no volume mount
+#   - celery_worker: production stage, concurrency=4
+#   - celery_beat: production stage
+#   - frontend: production stage (static build served by Nginx)
+#   - nginx: added (SSL termination, reverse proxy, SPA serving)
+#   - certbot: added (Let's Encrypt certificate management)
+#   - Ports 5173 and 8000 are NOT exposed publicly (Nginx handles ingress)
+# =============================================================================
+
+services:
+
+  # --------------------------------------------------------------------------
+  # PostgreSQL — production hardening
+  # --------------------------------------------------------------------------
+  db:
+    restart: unless-stopped
+    ports: []  # Do not expose DB port publicly in production
+
+  # --------------------------------------------------------------------------
+  # Redis — production hardening
+  # --------------------------------------------------------------------------
+  redis:
+    restart: unless-stopped
+    ports: []  # Do not expose Redis port publicly in production
+
+  # --------------------------------------------------------------------------
+  # FastAPI backend — production build, 4 workers
+  # --------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    restart: unless-stopped
+    volumes: []  # No source mount in production
+    ports: []    # Nginx proxies to this service internally
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
+
+  # --------------------------------------------------------------------------
+  # Celery worker — production build, 4 concurrent workers
+  # --------------------------------------------------------------------------
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    restart: unless-stopped
+    volumes: []
+    command: celery -A app.workers.celery_app worker --loglevel=warning --concurrency=4
+
+  # --------------------------------------------------------------------------
+  # Celery beat — production build
+  # --------------------------------------------------------------------------
+  celery_beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: production
+    restart: unless-stopped
+    volumes: []
+    command: celery -A app.workers.celery_app beat --loglevel=warning --scheduler celery.beat:PersistentScheduler
+
+  # --------------------------------------------------------------------------
+  # Frontend — static build (served by Nginx below)
+  # --------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+    restart: unless-stopped
+    volumes: []
+    ports: []  # Nginx serves the static files
+
+  # --------------------------------------------------------------------------
+  # Nginx — SSL termination + reverse proxy + SPA serving
+  # --------------------------------------------------------------------------
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/letsencrypt:ro
+      - certbot_webroot:/var/www/certbot:ro
+      - frontend_build:/usr/share/nginx/html:ro
+
+  # --------------------------------------------------------------------------
+  # Certbot — automatic SSL certificate renewal
+  # --------------------------------------------------------------------------
+  certbot:
+    image: certbot/certbot:latest
+    restart: unless-stopped
+    volumes:
+      - ./nginx/ssl:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+    # Renew every 12 hours; certbot only acts when cert is near expiry
+    entrypoint: >
+      sh -c "trap exit TERM;
+             while :; do
+               certbot renew --webroot -w /var/www/certbot --quiet;
+               sleep 12h & wait $${!};
+             done"
+
+# ---------------------------------------------------------------------------
+# Additional volumes for production
+# ---------------------------------------------------------------------------
+volumes:
+  certbot_webroot:
+  frontend_build:
