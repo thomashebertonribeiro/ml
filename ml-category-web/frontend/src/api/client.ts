@@ -1,11 +1,13 @@
 import axios from 'axios'
 import { useAuthStore } from '../store/authStore'
 
-// Em produção, o Traefik roteia /api/* → backend (removendo o prefixo /api)
-// Em desenvolvimento, usa VITE_API_URL diretamente
-const baseURL = import.meta.env.PROD
+// Em produção com Traefik, o frontend e backend estão no mesmo domínio.
+// O Traefik roteia /api/* → backend (removendo o prefixo /api).
+// Em desenvolvimento, usa VITE_API_URL diretamente.
+const isProd = import.meta.env.PROD
+const baseURL = isProd
   ? '/api'
-  : (import.meta.env.VITE_API_URL || 'http://localhost:8000')
+  : (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:8000'
 
 const apiClient = axios.create({ baseURL })
 

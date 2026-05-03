@@ -12,11 +12,7 @@ export function CategoryNode({ category, onSelect, depth = 0 }: CategoryNodeProp
   const [expanded, setExpanded] = useState(false)
   const { data: children, isLoading } = useCategoryChildren(expanded ? category.id : null)
 
-  const hasChildren = category.children_count !== 0
-
-  const toggle = () => {
-    if (hasChildren !== false) setExpanded((prev) => !prev)
-  }
+  const toggle = () => setExpanded((prev) => !prev)
 
   return (
     <div style={{ marginLeft: depth * 16 }}>
