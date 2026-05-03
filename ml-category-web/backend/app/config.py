@@ -54,6 +54,17 @@ class Settings(BaseSettings):
     """Maximum requests per minute per IP for the public API."""
 
     # ------------------------------------------------------------------ #
+    # Validators
+    # ------------------------------------------------------------------ #
+    @field_validator("ALLOWED_ORIGINS", mode="before")
+    @classmethod
+    def parse_allowed_origins(cls, v):
+        """Accept both a JSON list and a comma-separated string."""
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
+
+    # ------------------------------------------------------------------ #
     # Celery
     # ------------------------------------------------------------------ #
     CELERY_BROKER_URL: str = "redis://redis:6379/1"
