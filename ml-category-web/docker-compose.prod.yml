@@ -1,14 +1,16 @@
 version: "3.9"
 
 # =============================================================================
-# Production overrides — apply on top of docker-compose.yml:
+# Production overrides with Traefik integration.
 #
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Traefik is already running on this server with:
+#   - network_mode: host
+#   - providers.docker=true
+#   - certificatesresolvers.letsencrypt (HTTP challenge)
+#   - Auto redirect HTTP → HTTPS
 #
-# SSL certificates are obtained via certbot standalone BEFORE running this.
-# Run on the VPS:
-#   apt-get install -y certbot
-#   certbot certonly --standalone -d ml.brasilices.tech --email you@email.com --agree-tos
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 # =============================================================================
 
 services:
@@ -21,6 +23,9 @@ services:
     restart: unless-stopped
     ports: []
 
+  # --------------------------------------------------------------------------
+  # FastAPI backend — exposed via Traefik at ml.brasilices.tech/api/
+  # --------------------------------------------------------------------------
   backend:
     build:
       context: ./backend
@@ -28,11 +33,25 @@ services:
       target: production
     restart: unless-stopped
     volumes: []
-    ports: []
+    ports:
+      - "8000:8000"
     command: >
       sh -c "alembic upgrade head &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
+    labels:
+      - "traefik.enable=true"
+      # Route /api/ → backend (strip /api prefix)
+      - "traefik.http.routers.ml-backend.rule=Host(`ml.brasilices.tech`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.ml-backend.entrypoints=websecure"
+      - "traefik.http.routers.ml-backend.tls=true"
+      - "traefik.http.routers.ml-backend.tls.certresolver=letsencrypt"
+      - "traefik.http.middlewares.ml-strip-api.stripprefix.prefixes=/api"
+      - "traefik.http.routers.ml-backend.middlewares=ml-strip-api"
+      - "traefik.http.services.ml-backend.loadbalancer.server.port=8000"
 
+  # --------------------------------------------------------------------------
+  # Celery worker — production build
+  # --------------------------------------------------------------------------
   celery_worker:
     build:
       context: ./backend
@@ -42,6 +61,9 @@ services:
     volumes: []
     command: celery -A app.workers.celery_app worker --loglevel=warning --concurrency=4
 
+  # --------------------------------------------------------------------------
+  # Celery beat — production build
+  # --------------------------------------------------------------------------
   celery_beat:
     build:
       context: ./backend
@@ -51,6 +73,9 @@ services:
     volumes: []
     command: celery -A app.workers.celery_app beat --loglevel=warning --scheduler celery.beat:PersistentScheduler
 
+  # --------------------------------------------------------------------------
+  # React frontend — exposed via Traefik at ml.brasilices.tech
+  # --------------------------------------------------------------------------
   frontend:
     build:
       context: ./frontend
@@ -58,21 +83,16 @@ services:
       target: production
     restart: unless-stopped
     volumes: []
-    ports: []
-
-  nginx:
-    image: nginx:1.27-alpine
-    restart: unless-stopped
-    depends_on:
-      - backend
-      - frontend
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro
-      - frontend_build:/usr/share/nginx/html:ro
-
-volumes:
-  frontend_build:
+      - "3000:80"
+    labels:
+      - "traefik.enable=true"
+      # Route all other traffic → frontend SPA
+      - "traefik.http.routers.ml-frontend.rule=Host(`ml.brasilices.tech`)"
+      - "traefik.http.routers.ml-frontend.entrypoints=websecure"
+      - "traefik.http.routers.ml-frontend.tls=true"
+      - "traefik.http.routers.ml-frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ml-frontend.loadbalancer.server.port=80"
+      # Backend route has higher priority
+      - "traefik.http.routers.ml-frontend.priority=1"
+      - "traefik.http.routers.ml-backend.priority=10"

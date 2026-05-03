@@ -2,11 +2,13 @@ import { useEffect } from 'react'
 import { useSSE } from '../../hooks/useSSE'
 import { useImportStore } from '../../store/importStore'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_BASE = import.meta.env.PROD
+  ? '/api'
+  : (import.meta.env.VITE_API_URL || 'http://localhost:8000')
 
 export function ImportProgress() {
   const { isImporting, jobId, setProgress, setImporting } = useImportStore()
-  const sseUrl = isImporting && jobId ? `${API_URL}/import/progress` : null
+  const sseUrl = isImporting && jobId ? `${API_BASE}/import/progress` : null
   const { data, error } = useSSE(sseUrl)
 
   useEffect(() => {
