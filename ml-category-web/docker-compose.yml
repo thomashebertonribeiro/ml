@@ -17,6 +17,8 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
+    networks:
+      - mlnet
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -34,6 +36,8 @@ services:
       - redis_data:/data
     ports:
       - "6379:6379"
+    networks:
+      - mlnet
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -60,6 +64,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - mlnet
     volumes:
       - ./backend:/app
     ports:
@@ -87,6 +93,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - mlnet
     volumes:
       - ./backend:/app
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2
@@ -110,6 +118,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - mlnet
     volumes:
       - ./backend:/app
     command: celery -A app.workers.celery_app beat --loglevel=info --scheduler celery.beat:PersistentScheduler
@@ -123,6 +133,8 @@ services:
       dockerfile: Dockerfile
       target: development
     env_file: .env
+    networks:
+      - mlnet
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -130,6 +142,13 @@ services:
       - "5173:5173"
     environment:
       VITE_API_URL: http://localhost:8000
+
+# ---------------------------------------------------------------------------
+# Networks
+# ---------------------------------------------------------------------------
+networks:
+  mlnet:
+    driver: bridge
 
 # ---------------------------------------------------------------------------
 # Volumes
